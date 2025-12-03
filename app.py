@@ -205,7 +205,7 @@ with st.sidebar:
 
 # --- 8. UI INPUT ---
 st.markdown("<h1 class='gradient-text'>Smartpick Pro</h1>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle-text'>Dibuat oleh <b>FAISHAL</b> | Temukan Smartphone Impian dengan Analisis Cerdas</p>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle-text'>Temukan Smartphone Impian dengan Analisis Cerdas</p>", unsafe_allow_html=True)
 
 c1, c2, c3 = st.columns(3)
 
@@ -347,3 +347,4 @@ st.markdown("""
     Powered by Streamlit & Random Forest Algorithm
 </div>
 """, unsafe_allow_html=True)
+
