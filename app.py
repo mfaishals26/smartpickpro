@@ -177,7 +177,7 @@ with c3: st.slider("Kapasitas (mAh)", 3000, 7000, 5000, step=100, key='inp_bat')
 st.write("")
 col_btn1, col_btn2, col_btn3 = st.columns([2,1,2])
 with col_btn2:
-    st.button("✨ ANALISIS DAN CARI SEKARANG ✨", type="primary", on_click=proses_pencarian)
+    st.button("✨ CARI SEKARANG ✨", type="primary", on_click=proses_pencarian)
 
 st.markdown("---") 
 
@@ -297,3 +297,4 @@ st.markdown("""
     Powered by Streamlit & Random Forest Algorithm
 </div>
 """, unsafe_allow_html=True)
+
