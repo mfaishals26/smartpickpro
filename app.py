@@ -1,0 +1,376 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+import time
+import math
+
+# --- 1. KONFIGURASI HALAMAN ---
+st.set_page_config(
+    page_title="Smartpick Pro",
+    page_icon="✨",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# --- 2. SESSION STATE ---
+if 'search_results' not in st.session_state: st.session_state.search_results = None
+if 'page_number' not in st.session_state: st.session_state.page_number = 1
+
+# --- 3. ADVANCED CUSTOM CSS (TEMA DARK PREMIUM) ---
+st.markdown("""
+<style>
+    /* 1. BACKGROUND UTAMA (Polos tapi Elegan) */
+    .stApp {
+        /* Gradasi Gelap Premium (Midnight Blue to Charcoal) */
+        background: radial-gradient(circle at 10% 20%, rgb(25, 30, 40) 0%, rgb(0, 0, 0) 90%);
+        font-family: 'Inter', sans-serif;
+        color: white; /* Default text white */
+    }
+
+    /* 2. HEADER TITLE */
+    .gradient-text {
+        background: linear-gradient(to right, #4facfe 0%, #00f2fe 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 3.5rem;
+        font-weight: 900;
+        text-align: center;
+        letter-spacing: -1px;
+        margin-bottom: 5px;
+    }
+    
+    .subtitle-text {
+        text-align: center; 
+        color: #aaa; 
+        margin-bottom: 40px; 
+        font-weight: 300; 
+        font-size: 1.1rem;
+    }
+
+    /* 3. WARNA TEKS LABEL INPUT (Supaya Kontras) */
+    .stSlider label, .stSelectbox label, .stNumberInput label, .stMarkdown p {
+        color: #e0e0e0 !important; /* Putih agak abu dikit biar mata nyaman */
+        font-weight: 600;
+        font-size: 1rem;
+    }
+    
+    /* Warna Angka Slider */
+    div[data-testid="stThumbValue"] {
+        color: #ffffff !important;
+        background-color: transparent !important;
+    }
+    div[data-testid="stTickBarMin"], div[data-testid="stTickBarMax"] {
+        color: #aaaaaa !important;
+    }
+
+    /* 4. CARD DESIGN (KARTU HP) */
+    /* Kartu Top Pick */
+    .best-card {
+        background: white; /* Tetap putih agar konten HP jelas */
+        border-radius: 25px;
+        padding: 30px;
+        box-shadow: 0 0 50px rgba(0, 198, 255, 0.3); /* Glow Biru Muda */
+        border: 2px solid #00c6ff;
+        position: relative;
+        overflow: hidden;
+        color: #333;
+    }
+    .best-ribbon {
+        position: absolute;
+        top: 0; right: 0;
+        background: linear-gradient(90deg, #00c6ff, #0072ff);
+        color: white;
+        padding: 5px 20px;
+        border-bottom-left-radius: 20px;
+        font-weight: bold;
+    }
+
+    /* Kartu Biasa */
+    .phone-card {
+        background: white;
+        border-radius: 18px;
+        padding: 18px;
+        text-align: center;
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        border: 1px solid rgba(0,0,0,0.1);
+        height: 100%;
+        position: relative;
+        color: #333; /* Text di dalam kartu tetap hitam */
+    }
+    .phone-card:hover {
+        transform: translateY(-8px) scale(1.02);
+        box-shadow: 0 10px 40px rgba(0,0,0,0.5); /* Shadow lebih gelap */
+        z-index: 2;
+    }
+
+    /* 5. VISUAL BARS */
+    .bar-container {
+        background-color: #e0e0e0;
+        border-radius: 10px;
+        height: 6px;
+        width: 100%;
+        margin-top: 5px;
+        margin-bottom: 5px;
+        overflow: hidden;
+    }
+    .bar-fill-ram { height: 100%; background: linear-gradient(90deg, #11998e 0%, #38ef7d 100%); }
+    .bar-fill-bat { height: 100%; background: linear-gradient(90deg, #fce38a 0%, #f38181 100%); }
+
+    /* 6. LAIN-LAIN */
+    a.card-link { text-decoration: none; color: inherit; display: block; }
+    
+    .stat-box {
+        text-align: center;
+        padding: 15px;
+        background: rgba(255,255,255,0.1); /* Transparan */
+        border-radius: 15px;
+        border: 1px solid rgba(255,255,255,0.2);
+    }
+    .stat-num { font-size: 1.5rem; font-weight: bold; color: white; }
+    .stat-label { font-size: 0.8rem; color: #ccc; text-transform: uppercase; }
+
+    div.stButton > button {
+        width: 100%;
+        border-radius: 12px;
+        height: 50px;
+        font-weight: 700;
+        transition: 0.3s;
+        background: linear-gradient(90deg, #00c6ff, #0072ff); /* Biru Modern */
+        border: none;
+        color: white;
+    }
+    div.stButton > button:hover {
+        transform: scale(1.02);
+        box-shadow: 0 0 20px rgba(0, 198, 255, 0.6);
+    }
+
+    .footer {
+        text-align: center;
+        padding: 30px;
+        color: #888;
+        font-size: 0.9rem;
+        margin-top: 50px;
+        border-top: 1px solid rgba(255,255,255,0.1);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- 4. HELPER FUNCTIONS ---
+def get_icon_url():
+    return "https://cdn-icons-png.flaticon.com/512/644/644458.png"
+
+def make_link(brand, model):
+    query = f"gsmarena {brand} {model}".replace(' ', '+')
+    return f"https://www.google.com/search?q={query}"
+
+def render_bar(value, max_val, color_class):
+    pct = min((value / max_val) * 100, 100)
+    return f"""<div class="bar-container"><div class="{color_class}" style="width: {pct}%;"></div></div>"""
+
+# --- 5. DATA LOADING ---
+KURS_EUR_IDR = 17000 
+@st.cache_data
+def load_data():
+    try:
+        df = pd.read_csv('gsm_cleaned_final.csv')
+        df = df[df['ram_gb'] >= 3]
+        df = df[df['storage_gb'] >= 32]
+        df = df[~( (df['price_eur'] > 300) & (df['ram_gb'] < 4) )]
+        return df
+    except: return None
+
+@st.cache_resource
+def train_model(df):
+    X = df[['ram_gb', 'storage_gb', 'battery_mah']]
+    y = df['price_category']
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X, y)
+    return model
+
+df = load_data()
+if df is None: st.stop()
+rf_model = train_model(df)
+
+# --- 6. SIDEBAR INFO ---
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/4712/4712035.png", width=80)
+    st.title("Panduan")
+    st.info("""
+    **Cara Pakai:**
+    1.  Atur **Budget Maksimal**.
+    2.  Pilih **RAM & Storage**.
+    3.  Tentukan **Baterai**.
+    4.  Klik **Cari**.
+    """)
+    st.divider()
+    # Credit Sidebar
+    st.markdown("**Created with ❤️ by FAISHAL**")
+
+# --- 7. HEADER & INPUT SECTION ---
+st.markdown("<h1 class='gradient-text'>SMARTPICK PRO</h1>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle-text'>Temukan Smartphone Impian dengan Analisis Cerdas</p>", unsafe_allow_html=True)
+
+# Layout Input (Tanpa Wrapper Kotak)
+c1, c2, c3 = st.columns(3)
+
+with c1:
+    st.markdown("##### 💸 Budget (Rupiah)")
+    budget_input = st.slider("Geser untuk budget maksimal", 1_000_000, 30_000_000, 5_000_000, step=500_000, format="Rp %d")
+
+with c2:
+    st.markdown("##### 🚀 Spesifikasi Inti")
+    cc1, cc2 = st.columns(2)
+    with cc1: 
+        input_ram = st.selectbox("Kapasitas RAM", [3,4,6,8,12,16,24], index=3, format_func=lambda x: f"{x} GB")
+    with cc2: 
+        input_storage = st.selectbox("Memori Internal", [32,64,128,256,512,1024], index=3, format_func=lambda x: f"{x} GB")
+
+with c3:
+    st.markdown("##### ⚡ Daya Tahan Baterai")
+    input_battery = st.slider("Kapasitas (mAh)", 3000, 7000, 5000, step=100)
+
+st.write("")
+col_btn1, col_btn2, col_btn3 = st.columns([1,2,1])
+with col_btn2:
+    btn_cari = st.button("✨ ANALISIS DAN CARI SEKARANG ✨", type="primary")
+
+st.markdown("---") 
+
+# --- 8. LOGIC ---
+if btn_cari:
+    # Efek Konfeti
+    st.balloons()
+    
+    with st.spinner('🤖 AI sedang memproses database...'):
+        time.sleep(0.6)
+    
+    budget_eur = budget_input / KURS_EUR_IDR
+    candidates = df[df['price_eur'] <= budget_eur].copy()
+    
+    if candidates.empty:
+        st.error("Tidak ditemukan HP yang sesuai. Silakan sesuaikan filter.")
+        st.session_state.search_results = None
+    else:
+        # Scoring
+        candidates['score'] = np.sqrt(
+            (candidates['ram_gb'] - input_ram)**2 * 1.5 + 
+            (candidates['storage_gb'] - input_storage)**2 * 1.0 + 
+            ((candidates['battery_mah'] - input_battery)/100)**2 * 0.5
+        )
+        recommendations = candidates.sort_values(by='score')
+        st.session_state.search_results = recommendations
+        st.session_state.page_number = 1
+        
+        user_input = pd.DataFrame([[input_ram, input_storage, input_battery]], columns=['ram_gb', 'storage_gb', 'battery_mah'])
+        st.session_state.prediksi_kat = rf_model.predict(user_input)[0]
+
+# --- 9. DISPLAY RESULTS ---
+if st.session_state.search_results is not None:
+    results = st.session_state.search_results
+    
+    # Dashboard Statistik
+    st.markdown('<div style="margin-bottom: 30px;">', unsafe_allow_html=True)
+    sc1, sc2, sc3, sc4 = st.columns(4)
+    with sc1:
+        st.markdown(f"<div class='stat-box'><div class='stat-num'>{len(results)}</div><div class='stat-label'>HP Ditemukan</div></div>", unsafe_allow_html=True)
+    with sc2:
+        st.markdown(f"<div class='stat-box'><div class='stat-num'>{st.session_state.prediksi_kat}</div><div class='stat-label'>Kelas Prediksi</div></div>", unsafe_allow_html=True)
+    with sc3:
+        min_p = results['price_eur'].min() * KURS_EUR_IDR
+        st.markdown(f"<div class='stat-box'><div class='stat-num'>Rp {min_p/1000000:.1f}jt</div><div class='stat-label'>Harga Terendah</div></div>", unsafe_allow_html=True)
+    with sc4:
+        max_p = results['price_eur'].max() * KURS_EUR_IDR
+        st.markdown(f"<div class='stat-box'><div class='stat-num'>Rp {max_p/1000000:.1f}jt</div><div class='stat-label'>Harga Tertinggi</div></div>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    items_per_page = 12
+    best_phone = results.iloc[0]
+    others = results.iloc[1:]
+    total_pages = math.ceil(len(others) / items_per_page)
+
+    # HERO SECTION
+    if st.session_state.page_number == 1:
+        best_price = best_phone['price_eur'] * KURS_EUR_IDR
+        link_hero = make_link(best_phone['brand'], best_phone['model'])
+        
+        ram_bar = render_bar(best_phone['ram_gb'], 24, "bar-fill-ram")
+        bat_bar = render_bar(best_phone['battery_mah'], 7000, "bar-fill-bat")
+
+        st.markdown(f"""
+        <a href="{link_hero}" target="_blank" class="card-link">
+            <div class="best-card">
+                <div class="best-ribbon">🏆 TOP PICK</div>
+                <div style="display:flex; flex-wrap:wrap; align-items:center; gap:30px;">
+                    <div style="flex:1; text-align:center;">
+                        <img src="{get_icon_url()}" style="width:160px; opacity:0.9;">
+                    </div>
+                    <div style="flex:2;">
+                        <span style="background:#000; color:#fff; padding:3px 8px; border-radius:5px; font-size:0.8rem; letter-spacing:1px;">{best_phone['brand'].upper()}</span>
+                        <h1 style="margin:5px 0; color:#333;">{best_phone['model']}</h1>
+                        <h2 style="color:#0072ff; margin-bottom:15px;">Rp {best_price:,.0f}</h2>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                            <div><b>RAM {best_phone['ram_gb']}GB</b> {ram_bar}</div>
+                            <div><b>BATERAI {best_phone['battery_mah']}mAh</b> {bat_bar}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+        """, unsafe_allow_html=True)
+
+    # GRID SECTION
+    start_idx = (st.session_state.page_number - 1) * items_per_page
+    end_idx = start_idx + items_per_page
+    current_page = others.iloc[start_idx:end_idx]
+
+    if not current_page.empty:
+        st.subheader(f"📱 Halaman {st.session_state.page_number}")
+        cols = st.columns(4)
+        for idx, row in current_page.reset_index().iterrows():
+            c_idx = idx % 4
+            p_idr = row['price_eur'] * KURS_EUR_IDR
+            lnk = make_link(row['brand'], row['model'])
+            r_bar = render_bar(row['ram_gb'], 24, "bar-fill-ram")
+            b_bar = render_bar(row['battery_mah'], 7000, "bar-fill-bat")
+
+            with cols[c_idx]:
+                st.markdown(f"""
+                <a href="{lnk}" target="_blank" class="card-link">
+                    <div class="phone-card">
+                        <img src="{get_icon_url()}" style="width:60px; margin-bottom:10px;">
+                        <div style="font-size:0.8rem; color:#888; font-weight:700;">{row['brand'].upper()}</div>
+                        <div style="font-weight:700; color:#333; height:50px; display:flex; align-items:center; justify-content:center;">{row['model']}</div>
+                        <div style="color:#0072ff; font-weight:bold; font-size:1.1rem; margin:5px 0;">Rp {p_idr:,.0f}</div>
+                        <div style="text-align:left; font-size:0.75rem; color:#555; margin-top:10px;">
+                            <div>💾 {row['ram_gb']}GB {r_bar}</div>
+                            <div>🔋 {row['battery_mah']}mAh {b_bar}</div>
+                        </div>
+                    </div>
+                </a>
+                <div style="margin-bottom:20px;"></div>
+                """, unsafe_allow_html=True)
+
+    # PAGINATION
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
+    with col_p1:
+        if st.session_state.page_number > 1:
+            if st.button("⬅️ Back"):
+                st.session_state.page_number -= 1
+                st.rerun()
+    with col_p2:
+        st.markdown(f"<div style='text-align:center; color:white; font-weight:bold; padding-top:10px;'>Page {st.session_state.page_number} / {total_pages}</div>", unsafe_allow_html=True)
+    with col_p3:
+        if st.session_state.page_number < total_pages:
+            if st.button("Next ➡️"):
+                st.session_state.page_number += 1
+                st.rerun()
+
+# --- 10. FOOTER ---
+st.markdown("""
+<div class="footer">
+    Smartpick Pro © 2024 | Dibuat oleh FAISHAL<br>
+    Powered by Streamlit & Random Forest Algorithm
+</div>
+""", unsafe_allow_html=True)
