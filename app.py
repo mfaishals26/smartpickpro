@@ -13,11 +13,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. SESSION STATE ---
+# --- 2. SESSION STATE (INIT) ---
 if 'search_results' not in st.session_state: st.session_state.search_results = None
 if 'page_number' not in st.session_state: st.session_state.page_number = 1
 if 'prediksi_kat' not in st.session_state: st.session_state.prediksi_kat = ""
-# Flag khusus untuk Balon agar tidak spamming
+# Flag Balon
 if 'trigger_balloons' not in st.session_state: st.session_state.trigger_balloons = False
 
 # --- 3. LOAD DATA & MODEL ---
@@ -26,9 +26,10 @@ KURS_EUR_IDR = 17000
 @st.cache_data
 def load_data():
     try:
+        # Pastikan file ini ada di GitHub/Folder yang sama
         df = pd.read_csv('gsm_cleaned_final.csv')
         
-        # Regenerate kategori jika perlu
+        # Buat kategori jika belum ada
         def categorize(price):
             if price < 200: return 'Budget'
             elif price < 400: return 'Mid-Range'
@@ -38,7 +39,7 @@ def load_data():
         if 'price_category' not in df.columns:
             df['price_category'] = df['price_eur'].apply(categorize)
 
-        # Filter
+        # Filter Data
         df = df[df['ram_gb'] >= 3]
         df = df[df['storage_gb'] >= 32]
         df = df[~( (df['price_eur'] > 300) & (df['ram_gb'] < 4) )]
@@ -85,14 +86,13 @@ def proses_pencarian():
             ((candidates['battery_mah'] - bat_val)/100)**2 * 0.5
         )
         
-        # 4. Sorting Prioritas (Kategori Sama -> Score Terkecil)
+        # 4. Sorting Prioritas
         candidates['is_priority'] = candidates['price_category'] == prediksi
         
         st.session_state.search_results = candidates.sort_values(
             by=['is_priority', 'score'], 
             ascending=[False, True]
         )
-        # Aktifkan pemicu balon
         st.session_state.trigger_balloons = True
         
     st.session_state.page_number = 1
@@ -109,31 +109,25 @@ st.markdown("""
 <style>
     .stApp { background: radial-gradient(circle at 10% 20%, rgb(25, 30, 40) 0%, rgb(0, 0, 0) 90%); font-family: 'Inter', sans-serif; color: white; }
     
-    /* Header */
     .gradient-text { background: linear-gradient(to right, #4facfe 0%, #00f2fe 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 3.5rem; font-weight: 900; text-align: center; letter-spacing: -1px; margin-bottom: 5px; }
     .subtitle-text { text-align: center; color: #aaa; margin-bottom: 40px; font-weight: 300; font-size: 1.1rem; }
     
-    /* Inputs */
     .stSlider label, .stSelectbox label, .stNumberInput label, .stMarkdown p { color: #e0e0e0 !important; font-weight: 600; font-size: 1rem; }
     div[data-testid="stThumbValue"] { color: #ffffff !important; background-color: transparent !important; }
     div[data-testid="stTickBarMin"], div[data-testid="stTickBarMax"] { color: #aaaaaa !important; }
 
-    /* Card Design */
     .best-card { background: white; border-radius: 25px; padding: 30px; box-shadow: 0 0 50px rgba(0, 198, 255, 0.3); border: 2px solid #00c6ff; position: relative; overflow: hidden; color: #333; }
     .best-ribbon { position: absolute; top: 0; right: 0; background: linear-gradient(90deg, #00c6ff, #0072ff); color: white; padding: 5px 20px; border-bottom-left-radius: 20px; font-weight: bold; }
     
-    /* Grid System */
     .grid-container { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-top: 20px; }
     .phone-card { background: white; border-radius: 15px; padding: 15px; text-align: center; transition: all 0.2s; border: 1px solid rgba(0,0,0,0.1); height: 100%; color: #333; display: flex; flex-direction: column; justify-content: space-between; }
     .phone-card:hover { transform: translateY(-5px); box-shadow: 0 5px 15px rgba(255,255,255,0.2); }
     
-    /* Fonts */
     .card-brand { font-size: 0.75rem; color: #888; font-weight: 700; text-transform: uppercase; margin-bottom: 5px; }
     .card-model { font-weight: 700; color: #333; font-size: 1rem; margin-bottom: 5px; line-height: 1.2; }
     .card-price { color: #0072ff; font-weight: 800; font-size: 1rem; margin-bottom: 10px; }
     .card-spec { text-align: left; font-size: 0.7rem; color: #555; }
 
-    /* Mobile Responsive */
     @media only screen and (max-width: 600px) {
         .grid-container { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
         .phone-card { padding: 10px !important; border-radius: 12px !important; }
@@ -146,7 +140,6 @@ st.markdown("""
         .hero-grid-spec { grid-template-columns: 1fr !important; }
     }
 
-    /* Misc */
     .bar-container { background-color: #e0e0e0; border-radius: 10px; height: 5px; width: 100%; margin: 3px 0; overflow: hidden; }
     .bar-fill-ram { height: 100%; background: linear-gradient(90deg, #11998e 0%, #38ef7d 100%); }
     .bar-fill-bat { height: 100%; background: linear-gradient(90deg, #fce38a 0%, #f38181 100%); }
@@ -173,6 +166,7 @@ st.markdown("<h1 class='gradient-text'>Smartpick Pro</h1>", unsafe_allow_html=Tr
 st.markdown("<p class='subtitle-text'>Temukan Smartphone Impian dengan Analisis Cerdas</p>", unsafe_allow_html=True)
 
 c1, c2, c3 = st.columns(3)
+
 with c1: st.slider("Geser untuk budget maksimal", 1_000_000, 30_000_000, 5_000_000, step=500_000, format="Rp %d", key='inp_budget')
 with c2: 
     cc1, cc2 = st.columns(2)
@@ -181,7 +175,7 @@ with c2:
 with c3: st.slider("Kapasitas (mAh)", 3000, 7000, 5000, step=100, key='inp_bat')
 
 st.write("")
-col_btn1, col_btn2, col_btn3 = st.columns([1,2,1])
+col_btn1, col_btn2, col_btn3 = st.columns([2,1,2])
 with col_btn2:
     st.button("✨ ANALISIS DAN CARI SEKARANG ✨", type="primary", on_click=proses_pencarian)
 
@@ -194,10 +188,10 @@ if st.session_state.search_results is not None:
     if results.empty:
         st.error("❌ Tidak ditemukan HP yang sesuai. Coba naikkan Budget.")
     else:
-        # LOGIKA BALON (Hanya muncul jika triggered)
+        # Balon
         if st.session_state.trigger_balloons:
             st.balloons()
-            st.session_state.trigger_balloons = False # Matikan agar tidak muncul saat ganti halaman
+            st.session_state.trigger_balloons = False
 
         # Dashboard
         st.markdown('<div style="margin-bottom: 30px;">', unsafe_allow_html=True)
@@ -246,13 +240,14 @@ if st.session_state.search_results is not None:
             </a>
             """, unsafe_allow_html=True)
 
-        # GRID SECTION (FIX MOBILE RATA KIRI)
+        # GRID SECTION
         start_idx = (st.session_state.page_number - 1) * items_per_page
         end_idx = start_idx + items_per_page
         current_page = others.iloc[start_idx:end_idx]
 
         if not current_page.empty:
             st.subheader(f"📱 Halaman {st.session_state.page_number}")
+            
             html_content = '<div class="grid-container">'
             for idx, row in current_page.reset_index().iterrows():
                 p_idr = row['price_eur'] * KURS_EUR_IDR
@@ -260,6 +255,7 @@ if st.session_state.search_results is not None:
                 r_bar = render_bar(row['ram_gb'], 24, "bar-fill-ram")
                 b_bar = render_bar(row['battery_mah'], 7000, "bar-fill-bat")
                 
+                # HTML Rata Kiri
                 card_html = f"""
 <a href="{lnk}" target="_blank" class="card-link">
 <div class="phone-card">
