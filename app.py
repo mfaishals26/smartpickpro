@@ -15,6 +15,7 @@ st.set_page_config(
 
 # --- 2. SESSION STATE (INIT) ---
 if 'search_results' not in st.session_state: st.session_state.search_results = None
+if 'alternatives' not in st.session_state: st.session_state.alternatives = None
 if 'page_number' not in st.session_state: st.session_state.page_number = 1
 if 'prediksi_kat' not in st.session_state: st.session_state.prediksi_kat = ""
 if 'trigger_balloons' not in st.session_state: st.session_state.trigger_balloons = False
@@ -37,9 +38,15 @@ def load_data():
         if 'price_category' not in df.columns:
             df['price_category'] = df['price_eur'].apply(categorize)
 
+        # Filter Data
         df = df[df['ram_gb'] >= 3]
         df = df[df['storage_gb'] >= 32]
+        
+        # FIX HARGA NGACO
+        df = df[df['price_eur'] < 3000]
+        df = df[df['price_eur'] > 50]
         df = df[~( (df['price_eur'] > 300) & (df['ram_gb'] < 4) )]
+        
         return df
     except: return None
 
@@ -55,51 +62,55 @@ df = load_data()
 if df is None: st.stop()
 rf_model = train_model(df)
 
-# --- 4. FUNGSI CALLBACK (LOGIKA BARU: STRICT -> FALLBACK) ---
+# --- 4. FUNGSI CALLBACK ---
 def proses_pencarian():
     budget_val = st.session_state.inp_budget
     ram_val = st.session_state.inp_ram
     storage_val = st.session_state.inp_storage
     bat_val = st.session_state.inp_bat
     
-    # 1. Prediksi AI (Untuk Insight)
+    # 1. Prediksi AI
     user_input = pd.DataFrame([[ram_val, storage_val, bat_val]], columns=['ram_gb', 'storage_gb', 'battery_mah'])
     prediksi = rf_model.predict(user_input)[0]
     st.session_state.prediksi_kat = prediksi
     
     budget_eur = budget_val / KURS_EUR_IDR
     
-    # 2. LOGIKA UTAMA: CARI YANG SESUAI (STRICT)
-    # Kriteria: Harga <= Budget DAN Spek >= Inputan
+    # Hitung Score Global
+    df['score'] = np.sqrt(
+        (df['ram_gb'] - ram_val)**2 * 1.5 + 
+        (df['storage_gb'] - storage_val)**2 * 1.0 + 
+        ((df['battery_mah'] - bat_val)/100)**2 * 0.5
+    )
+    
+    # 2. Filter Strict (Sesuai Budget)
     candidates_strict = df[
         (df['price_eur'] <= budget_eur) & 
         (df['ram_gb'] >= ram_val) & 
         (df['storage_gb'] >= storage_val) &
-        (df['battery_mah'] >= bat_val - 500) # Toleransi baterai dikit (-500mAh)
+        (df['battery_mah'] >= bat_val - 500)
     ].copy()
     
     if not candidates_strict.empty:
-        # KASUS 1: ADA YANG COCOK
-        st.session_state.search_results = candidates_strict.sort_values(by='price_eur', ascending=False) # Urutkan dari spek/harga tertinggi
-        st.session_state.is_fallback = False # Bukan fallback
+        # KASUS A: ADA YANG COCOK
+        candidates_strict['is_priority'] = candidates_strict['price_category'] == prediksi
+        st.session_state.search_results = candidates_strict.sort_values(by=['is_priority', 'score'], ascending=[False, True])
+        
+        st.session_state.is_fallback = False
         st.session_state.trigger_balloons = True
+        
+        # Cari Alternatif tambahan (opsional, ambil dari sisa data)
+        remaining_data = df.drop(candidates_strict.index)
+        st.session_state.alternatives = remaining_data.sort_values(by='score').head(8)
+        
     else:
-        # KASUS 2: TIDAK ADA YANG COCOK -> CARI REKOMENDASI MENDEKATI (FALLBACK)
+        # KASUS B: TIDAK ADA YANG COCOK (FALLBACK)
         st.session_state.is_fallback = True
         st.session_state.trigger_balloons = False
+        st.session_state.alternatives = None
         
-        # Ambil semua data untuk dicari kemiripannya
-        fallback_candidates = df.copy()
-        
-        # Hitung skor kemiripan (makin kecil makin mirip)
-        fallback_candidates['score'] = np.sqrt(
-            (fallback_candidates['ram_gb'] - ram_val)**2 * 2.0 +  # Bobot RAM besar
-            (fallback_candidates['storage_gb'] - storage_val)**2 * 1.5 + 
-            ((fallback_candidates['battery_mah'] - bat_val)/100)**2 * 0.5
-        )
-        
-        # Urutkan dari yang paling mirip
-        st.session_state.search_results = fallback_candidates.sort_values(by='score').head(20) # Ambil 20 teratas
+        # Tampilkan rekomendasi terbaik dari seluruh DB
+        st.session_state.search_results = df.sort_values(by='score').head(20)
 
     st.session_state.page_number = 1
 
@@ -150,7 +161,7 @@ st.markdown("""
         .hero-grid-spec { grid-template-columns: 1fr !important; }
     }
 
-    /* Warning / Fallback Box */
+    /* Warning Box */
     .warning-container {
         background-color: rgba(255, 75, 75, 0.1);
         border: 2px solid #ff4b4b;
@@ -160,7 +171,7 @@ st.markdown("""
         margin-bottom: 30px;
         color: white;
     }
-    .warning-title { font-size: 1.8rem; font-weight: 900; color: #ff4b4b; display: block; margin-bottom: 10px; text-transform: uppercase;}
+    .warning-title { font-size: 1.5rem; font-weight: 900; color: #ff4b4b; display: block; margin-bottom: 10px; text-transform: uppercase;}
     .warning-text { font-size: 1rem; color: #e0e0e0; }
 
     /* Misc */
@@ -174,6 +185,13 @@ st.markdown("""
     
     div.stButton > button { width: 100%; border-radius: 12px; height: 50px; font-weight: 700; transition: 0.3s; background: linear-gradient(90deg, #00c6ff, #0072ff); border: none; color: white; }
     .footer { text-align: center; padding: 30px; color: #888; font-size: 0.9rem; margin-top: 50px; border-top: 1px solid rgba(255,255,255,0.1); }
+    
+    /* Section Title */
+    .section-title {
+        margin-top: 40px; margin-bottom: 20px; text-align: center;
+        font-weight: 700; color: #ffffff; text-transform: uppercase;
+        letter-spacing: 1px; font-size: 1.2rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -187,7 +205,7 @@ with st.sidebar:
 
 # --- 8. UI INPUT ---
 st.markdown("<h1 class='gradient-text'>Smartpick Pro</h1>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle-text'>Temukan Smartphone Impian dengan Analisis Cerdas</p>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle-text'>Dibuat oleh <b>FAISHAL</b> | Temukan Smartphone Impian dengan Analisis Cerdas</p>", unsafe_allow_html=True)
 
 c1, c2, c3 = st.columns(3)
 
@@ -201,7 +219,7 @@ with c3: st.slider("Kapasitas (mAh)", 3000, 7000, 5000, step=100, key='inp_bat')
 st.write("")
 col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 2])
 with col_btn2:
-    st.button("✨ CARI SEKARANG ✨", type="primary", on_click=proses_pencarian)
+    st.button("✨ ANALISIS DAN CARI SEKARANG ✨", type="primary", on_click=proses_pencarian)
 
 st.markdown("---") 
 
@@ -209,7 +227,7 @@ st.markdown("---")
 if st.session_state.search_results is not None:
     results = st.session_state.search_results
     
-    # --- LOGIKA TAMPILAN JIKA TIDAK ADA YANG COCOK (FALLBACK) ---
+    # --- KONDISI: TIDAK ADA YANG COCOK (FALLBACK) ---
     if st.session_state.is_fallback:
         st.markdown("""
         <div class="warning-container">
@@ -245,7 +263,6 @@ if st.session_state.search_results is not None:
         ram_bar = render_bar(best_phone['ram_gb'], 24, "bar-fill-ram")
         bat_bar = render_bar(best_phone['battery_mah'], 7000, "bar-fill-bat")
         
-        # Badge Label Logic
         badge_text = f"🏆 TOP PICK {st.session_state.prediksi_kat.upper()}"
         if st.session_state.is_fallback:
             badge_text = "💡 REKOMENDASI ALTERNATIF"
@@ -278,7 +295,8 @@ if st.session_state.search_results is not None:
     current_page = others.iloc[start_idx:end_idx]
 
     if not current_page.empty:
-        st.subheader(f"📱 Daftar HP Lainnya (Halaman {st.session_state.page_number})")
+        # JUDUL GRID DIGANTI (TANPA HALAMAN 1)
+        st.markdown("<h3 class='section-title'>💡 Rekomendasi Alternatif yang Mendekati</h3>", unsafe_allow_html=True)
         
         html_content = '<div class="grid-container">'
         for idx, row in current_page.reset_index().iterrows():
@@ -305,7 +323,7 @@ if st.session_state.search_results is not None:
         html_content += '</div>'
         st.markdown(html_content, unsafe_allow_html=True)
 
-    # PAGINATION
+    # --- PAGINATION ---
     st.markdown("<br>", unsafe_allow_html=True)
     col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
     with col_p1:
@@ -321,6 +339,7 @@ if st.session_state.search_results is not None:
                 st.session_state.page_number += 1
                 st.rerun()
 
+   
 # --- 10. FOOTER ---
 st.markdown("""
 <div class="footer">
